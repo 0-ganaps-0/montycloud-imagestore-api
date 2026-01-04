@@ -1,0 +1,11 @@
+.git
+.venv
+.tox
+.pytest_cache
+__pycache__
+tests
+localstack-data
+uploads/
+.env
+requirements-dev.in
+requirements-dev.txt

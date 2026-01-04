@@ -1,0 +1,25 @@
+-c requirements.txt
+
+# AWS/LocalStack Tools
+awscli-local
+localstack
+moto[all]              # Critical for fast unit mocks
+
+# Testing Core & Plugins
+pytest>=8.0.0          # Enforces version 8.0 or higher
+pytest-cov             # Essential for 90% coverage enforcement
+pytest-mock            # Professional mocking fixture
+pytest-asyncio         # Required for async FastAPI testing
+httpx                  # Required for FastAPI TestClient
+
+# Automation
+tox
+
+# Quality & Linting
+black
+flake8
+flake8-pyproject
+pre-commit
+
+# Environment Management
+pip-tools

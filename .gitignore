@@ -1,0 +1,62 @@
+# --- Environment & Secrets ---
+.env
+.venv/
+env/
+venv/
+*.env
+
+# --- AWS & LocalStack ---
+# Crucial: Ignore the data LocalStack persists so your repo stays small
+localstack-data/
+.aws/
+# Ignore the specific installer you mentioned
+awscliv2.zip
+
+# --- Python & Build ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Testing & Quality ---
+.tox/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# --- Local Image Storage ---
+# Since your API handles image uploads, ensure local test uploads aren't committed
+uploads/
+temp_images/
+
+# --- OS & IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+    
