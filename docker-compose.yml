@@ -1,20 +1,14 @@
+
 services:
   localstack:
     image: localstack/localstack:latest
-    container_name: localstack_api
     ports:
-      - "4566:4566" # Main endpoint for all services
+      - "4566:4566"
     environment:
-      # Explicitly state the services we need
-      - SERVICES=s3,dynamodb
-      # Use placeholder credentials as standard practice
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
+      - SERVICES=s3,lambda,apigateway,dynamodb,iam,cloudwatch,sts
+      - DEBUG=1
       - AWS_DEFAULT_REGION=us-east-1
-      # Enable persistence of data across container restarts
-      - PERSISTENCE=1
+      - LAMBDA_EXECUTOR=docker-reuse
     volumes:
-      # Mount a local directory to store persistent data
-      - ./localstack-data:/var/lib/localstack
-      # Mount Docker socket for internal LocalStack operations
-      - /var/run/docker.sock:/var/run/docker.sock
+      - "${LOCALSTACK_VOLUME_DIR:-./.localstack}:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"

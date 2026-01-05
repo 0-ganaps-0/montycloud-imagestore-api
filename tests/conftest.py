@@ -1,81 +1,118 @@
+
+# tests/conftest.py
 import os
+import sys
+import json
+import base64
+import uuid
 import pytest
 import boto3
 from moto import mock_aws
-from httpx import AsyncClient, ASGITransport
-from src.main import app
-from src.core.config import settings
-import pytest_asyncio
 
+# Ensure "src/" is on module path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# Keep unit tests isolated from LocalStack & external endpoints
+os.environ.pop("AWS_ENDPOINT_URL", None)
+os.environ.setdefault("AWS_REGION", "us-east-1")
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
+
+# Constants used across tests
+BUCKET_NAME = "test-bucket"
+IMAGES_TABLE = "images"
+TAGS_TABLE = "image_tags"
+
+def _create_s3_bucket():
+    s3 = boto3.client("s3", region_name=os.environ["AWS_REGION"])
+    s3.create_bucket(Bucket=BUCKET_NAME)
+
+def _create_tables():
+    ddb = boto3.client("dynamodb", region_name=os.environ["AWS_REGION"])
+    # images table with GSI: user_id-index
+    ddb.create_table(
+        TableName=IMAGES_TABLE,
+        AttributeDefinitions=[
+            {"AttributeName": "image_id", "AttributeType": "S"},
+            {"AttributeName": "user_id", "AttributeType": "S"},
+            {"AttributeName": "created_at", "AttributeType": "S"},
+        ],
+        KeySchema=[{"AttributeName": "image_id", "KeyType": "HASH"}],
+        BillingMode="PAY_PER_REQUEST",
+        GlobalSecondaryIndexes=[{
+            "IndexName": "user_id-index",
+            "KeySchema": [
+                {"AttributeName": "user_id", "KeyType": "HASH"},
+                {"AttributeName": "created_at", "KeyType": "RANGE"},
+            ],
+            "Projection": {"ProjectionType": "ALL"},
+        }],
+    )
+    # image_tags table for tag queries
+    ddb.create_table(
+        TableName=TAGS_TABLE,
+        AttributeDefinitions=[
+            {"AttributeName": "tag", "AttributeType": "S"},
+            {"AttributeName": "image_id", "AttributeType": "S"},
+        ],
+        KeySchema=[
+            {"AttributeName": "tag", "KeyType": "HASH"},
+            {"AttributeName": "image_id", "KeyType": "RANGE"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
 
 @pytest.fixture(autouse=True)
-def aws_credentials():
-    """Mocked AWS Credentials for moto."""
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    os.environ["AWS_REGION"] = "us-east-1"
+def moto_env():
+    """
+    Auto-use fixture: spins up moto across each test function,
+    sets essential env vars for handlers, and prepares S3 & DynamoDB.
+    """
+    os.environ["S3_BUCKET_NAME"] = BUCKET_NAME
+    os.environ["IMAGES_TABLE_NAME"] = IMAGES_TABLE
+    os.environ["IMAGE_TAGS_TABLE_NAME"] = TAGS_TABLE
 
-def setup_mocks(aws_credentials):
-    with mock_aws():
-        # 1. Create resources
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket=settings.S3_BUCKET_NAME)
-        
-        db = boto3.resource("dynamodb", region_name="us-east-1")
-        db.create_table(...) # (Your table creation code)
-
-        # 2. OVERRIDE the manager to ensure it uses the mock clients
-        def override_get_manager():
-            return ImageManager()
-        
-        app.dependency_overrides[get_manager] = override_get_manager
+    m = mock_aws()
+    m.start()
+    try:
+        _create_s3_bucket()
+        _create_tables()
         yield
-        app.dependency_overrides.clear()
-
-@pytest.fixture(scope="function")
-def mock_aws_env():
-    """Setup mock S3 bucket and DynamoDB table."""
-    with mock_aws():
-        # Setup S3
-        s3 = boto3.client("s3", region_name=settings.AWS_REGION)
-        s3.create_bucket(Bucket=settings.S3_BUCKET_NAME)
-
-        # Setup DynamoDB
-        dynamodb = boto3.resource("dynamodb", region_name=settings.AWS_REGION)
-        dynamodb.create_table(
-            TableName=settings.DYNAMODB_TABLE_NAME,
-            KeySchema=[{"AttributeName": "ImageId", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "ImageId", "AttributeType": "S"}],
-            ProvisionedThroughput={"ReadCapacityUnits": 1, "WriteCapacityUnits": 1},
-        )
-        yield s3, dynamodb
-
-@pytest_asyncio.fixture
-async def async_client(mock_aws_env):
-    """Async client for testing FastAPI endpoints."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    finally:
+        m.stop()
 
 @pytest.fixture
-def s3_client(aws_credentials):
-    with mock_aws():
-        client = boto3.client("s3", region_name="us-east-1")
-        client.create_bucket(Bucket=settings.S3_BUCKET_NAME)
-        yield client
+def upload_req():
+    """
+    Produce a basic valid upload payload (PNG base64).
+    """
+    png_bytes = b"\x89PNG\r\n\x1a\n" + os.urandom(16)  # small fake PNG
+    return {
+        "user_id": "u1",
+        "title": "Sample",
+        "description": "desc",
+        "tags": ["demo", "Test"],
+        "content_type": "image/png",
+        "image_base64": base64.b64encode(png_bytes).decode(),
+    }
 
 @pytest.fixture
-def table_setup(aws_credentials):
-    with mock_aws():
-        db = boto3.resource("dynamodb", region_name="us-east-1")
-        table = db.create_table(
-            TableName="ImageMetadataTable",
-            KeySchema=[{"AttributeName": "ImageId", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "ImageId", "AttributeType": "S"}],
-            ProvisionedThroughput={"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-        )
-        table.meta.client.get_waiter('table_exists').wait(TableName="ImageMetadataTable")
-        yield table
+def upload_req_minimal():
+    """
+    Minimal valid upload payload (no description).
+    """
+    return {
+        "user_id": "u2",
+        "title": "T",
+        "tags": ["onlytag"],
+        "content_type": "image/jpeg",
+        "image_base64": base64.b64encode(b"abc").decode(),
+    }
+
+def make_event(body_dict):
+    return {"body": json.dumps(body_dict)}
+
+def random_image_id():
+    return str(uuid.uuid4())
